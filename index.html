@@ -1,0 +1,900 @@
+<html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片标注与人员信息查看工具</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3B82F6',
+            secondary: '#10B981',
+            danger: '#EF4444',
+            dark: '#1E293B',
+            light: '#F8FAFC'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .annotation-point {
+        @apply absolute w-4 h-4 bg-primary rounded-full transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all duration-300 z-10;
+      }
+      .annotation-point:hover {
+        @apply scale-150 z-10;
+      }
+      .annotation-point.active {
+        @apply scale-150 bg-secondary border-2 border-white shadow-lg z-10;
+      }
+      .annotation-info {
+        @apply absolute left-1/2 bottom-full transform -translate-x-1/2 mt-[-8px] bg-white p-3 rounded-lg shadow-xl border border-gray-200 min-w-[200px] opacity-0 invisible transition-all duration-300 z-[1000];
+      }
+      .annotation-point:hover .annotation-info {
+        @apply opacity-100 visible;
+      }
+      .annotation-marker {
+        @apply absolute w-4 h-4 bg-primary/70 rounded-full transform -translate-x-1/2 -translate-y-1/2 cursor-pointer;
+      }
+      .annotation-marker::after {
+        content: '';
+        @apply absolute w-full h-full bg-primary/30 rounded-full animate-ping;
+      }
+      .scale-controls {
+        @apply absolute bottom-4 right-4 flex flex-col gap-2 bg-white/90 p-2 rounded-lg shadow-lg;
+      }
+      .scale-btn {
+        @apply w-8 h-8 flex items-center justify-center rounded bg-primary text-white hover:bg-primary/80 transition-colors;
+      }
+      .toolbar {
+        @apply fixed top-4 left-1/2 transform -translate-x-1/2 bg-white/90 p-2 rounded-lg shadow-lg flex items-center gap-3 z-20;
+      }
+      .toolbar-btn {
+        @apply px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/80 transition-colors flex items-center gap-1.5;
+      }
+      .toolbar-btn.active {
+        @apply bg-secondary;
+      }
+      .toolbar-btn:disabled {
+        @apply bg-gray-300 cursor-not-allowed;
+      }
+      .person-list-item {
+        @apply p-2 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors;
+      }
+      .person-list-item.active {
+        @apply bg-primary/10 border-primary;
+      }
+      .person-card {
+        @apply bg-white rounded-lg shadow-md p-4 mb-3 transform transition-all duration-300 hover:shadow-lg;
+      }
+      .person-card h3 {
+        @apply font-semibold text-lg text-primary;
+      }
+      .search-container {
+        @apply relative mb-3;
+      }
+      .search-input {
+        @apply w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary/50;
+      }
+      .search-icon {
+        @apply absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400;
+      }
+      .no-results {
+        @apply text-center py-6 text-gray-500;
+      }
+      .loading-spinner {
+        @apply w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto;
+      }
+      .map-container {
+        @apply relative w-full overflow-hidden bg-gray-100 border border-gray-200 rounded-lg;
+      }
+      .image-wrapper {
+        @apply absolute transform origin-top-left transition-transform duration-300;
+      }
+      .person-details {
+        @apply bg-white rounded-lg shadow-md p-4 h-full overflow-y-auto;
+      }
+      .close-btn {
+        @apply absolute top-3 right-3 text-gray-400 hover:text-gray-600 cursor-pointer;
+      }
+      .tooltip-arrow {
+        @apply absolute w-3 h-3 bg-white rotate-45 left-1/2 transform -translate-x-1/2 bottom-[-5px] border-l border-b border-gray-200;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 font-sans text-dark min-h-screen">
+  <div class="container mx-auto px-4 py-8">
+    <header class="mb-6">
+      <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-center text-dark">图片标注与人员信息查看工具</h1>
+      <p class="text-center text-gray-600 mt-2">点击图片添加标注，查看最近的已标注人员</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- 左侧面板：人员列表 -->
+      <div class="lg:col-span-1">
+        <div class="bg-white rounded-lg shadow-md p-4 h-full">
+          <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <i class="fa fa-users text-primary"></i>人员列表
+          </h2>
+          
+          <div class="search-container">
+            <input type="text" id="search-input" class="search-input" placeholder="搜索人员...">
+            <i class="fa fa-search search-icon"></i>
+          </div>
+          
+          <div id="person-list" class="max-h-[calc(100vh-220px)] overflow-y-auto">
+            <div class="no-results">
+              <i class="fa fa-info-circle text-gray-400 mb-2"></i>
+              <p>暂无标注人员，请在图片上点击添加</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 中间区域：图片标注 -->
+      <div class="lg:col-span-2">
+        <div class="toolbar">
+          <button id="add-mode-btn" class="toolbar-btn active">
+            <i class="fa fa-plus"></i>
+            <span>添加标注</span>
+          </button>
+          <button id="view-mode-btn" class="toolbar-btn">
+            <i class="fa fa-eye"></i>
+            <span>查看模式</span>
+          </button>
+          <button id="delete-mode-btn" class="toolbar-btn">
+            <i class="fa fa-trash"></i>
+            <span>删除标注</span>
+          </button>
+          <button id="reset-btn" class="toolbar-btn" disabled="">
+            <i class="fa fa-refresh"></i>
+            <span>重置</span>
+          </button>
+        </div>
+        
+        <div class="map-container h-[calc(100vh-180px)]">
+          <div id="image-wrapper" class="image-wrapper">
+            <img id="annotation-image" src="https://picsum.photos/1200/800?random=1" alt="城市街道场景" class="max-w-none">
+            <!-- <img id="annotation-image" src="t.jpg" alt="城市街道场景" class="max-w-full h-auto"> -->
+            <!-- 标注点将通过JS动态添加 -->
+          </div>
+          
+          <div class="scale-controls">
+            <button id="zoom-in-btn" class="scale-btn">
+              <i class="fa fa-search-plus"></i>
+            </button>
+            <button id="zoom-out-btn" class="scale-btn">
+              <i class="fa fa-search-minus"></i>
+            </button>
+            <button id="reset-scale-btn" class="scale-btn" style="display: none;">
+              <i class="fa fa-expand"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 右侧面板：人员详情 -->
+      <div id="details-panel" class="lg:col-span-1 hidden lg:block">
+        <div class="person-details">
+          <button id="close-details-btn" class="close-btn">
+            <i class="fa fa-times"></i>
+          </button>
+          <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <i class="fa fa-user text-primary"></i>人员详情
+          </h2>
+          
+          <div id="no-selection-message" class="text-center py-16">
+            <i class="fa fa-hand-pointer-o text-4xl text-gray-300 mb-4"></i>
+            <p class="text-gray-500">点击图片上的标注点查看人员详情</p>
+          </div>
+          
+          <div id="person-details-content" class="hidden">
+            <!-- 人员详情将通过JS动态填充 -->
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 移动设备上的人员详情模态框 -->
+    <div id="details-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 hidden">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div class="person-details p-6 relative">
+          <button id="close-modal-btn" class="close-btn">
+            <i class="fa fa-times"></i>
+          </button>
+          <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <i class="fa fa-user text-primary"></i>人员详情
+          </h2>
+          
+          <div id="modal-person-details" class="mt-4">
+            <!-- 人员详情将通过JS动态填充 -->
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 添加人员表单模态框 -->
+    <div id="add-person-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 hidden">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div class="p-6">
+          <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <i class="fa fa-user-plus text-primary"></i>添加人员标注
+          </h2>
+          
+          <form id="add-person-form">
+            <input type="hidden" id="annotation-x">
+            <input type="hidden" id="annotation-y">
+            
+            <div class="mb-4">
+              <label for="person-name" class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+              <input type="text" id="person-name" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="请输入姓名" required="">
+            </div>
+            
+            <div class="mb-4">
+              <label for="person-role" class="block text-sm font-medium text-gray-700 mb-1">角色</label>
+              <input type="text" id="person-role" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="请输入角色" required="">
+            </div>
+            
+            <div class="mb-4">
+              <label for="person-description" class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+              <textarea id="person-description" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="请输入描述信息"></textarea>
+            </div>
+            
+            <div class="flex justify-end gap-3 mt-6">
+              <button type="button" id="cancel-add-btn" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors">取消</button>
+              <button type="submit" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/80 transition-colors">添加标注</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 确认删除模态框 -->
+    <div id="confirm-delete-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 hidden">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div class="p-6">
+          <h2 class="text-xl font-semibold mb-4 flex items-center gap-2 text-danger">
+            <i class="fa fa-exclamation-triangle"></i>确认删除
+          </h2>
+          
+          <p class="text-gray-700 mb-6">确定要删除该人员标注吗？此操作不可撤销。</p>
+          
+          <div class="flex justify-end gap-3">
+            <button type="button" id="cancel-delete-btn" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors">取消</button>
+            <button type="button" id="confirm-delete-btn" class="px-4 py-2 bg-danger text-white rounded-md hover:bg-danger/80 transition-colors">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // 状态管理
+      const state = {
+        mode: 'add', // 'add', 'view', 'delete'
+        scale: 1,
+        translateX: 0,
+        translateY: 0,
+        annotations: [],
+        selectedAnnotationId: null,
+        hoveredAnnotationId: null,
+        dragStart: null,
+        isDragging: false,
+        searchTerm: '',
+        lastClickTime: 0,
+        mapDimensions: { width: 0, height: 0 },
+        imageDimensions: { width: 0, height: 0 }
+      };
+
+      // DOM 元素
+      const elements = {
+        imageWrapper: document.getElementById('image-wrapper'),
+        annotationImage: document.getElementById('annotation-image'),
+        personList: document.getElementById('person-list'),
+        personDetailsContent: document.getElementById('person-details-content'),
+        noSelectionMessage: document.getElementById('no-selection-message'),
+        detailsPanel: document.getElementById('details-panel'),
+        detailsModal: document.getElementById('details-modal'),
+        modalPersonDetails: document.getElementById('modal-person-details'),
+        addPersonModal: document.getElementById('add-person-modal'),
+        confirmDeleteModal: document.getElementById('confirm-delete-modal'),
+        searchInput: document.getElementById('search-input'),
+        addModeBtn: document.getElementById('add-mode-btn'),
+        viewModeBtn: document.getElementById('view-mode-btn'),
+        deleteModeBtn: document.getElementById('delete-mode-btn'),
+        resetBtn: document.getElementById('reset-btn'),
+        zoomInBtn: document.getElementById('zoom-in-btn'),
+        zoomOutBtn: document.getElementById('zoom-out-btn'),
+        resetScaleBtn: document.getElementById('reset-scale-btn'),
+        closeDetailsBtn: document.getElementById('close-details-btn'),
+        closeModalBtn: document.getElementById('close-modal-btn'),
+        cancelAddBtn: document.getElementById('cancel-add-btn'),
+        cancelDeleteBtn: document.getElementById('cancel-delete-btn'),
+        confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
+        addPersonForm: document.getElementById('add-person-form')
+      };
+
+      // 初始化
+      function init() {
+        // 加载本地存储的标注数据
+        loadAnnotations();
+        
+        // 监听图片加载完成事件
+        elements.annotationImage.addEventListener('load', updateImageDimensions);
+        
+        // 监听窗口大小变化
+        window.addEventListener('resize', updateMapDimensions);
+        
+        // 初始化地图尺寸
+        updateMapDimensions();
+        
+        // 绑定事件监听器
+        bindEventListeners();
+        
+        // 渲染所有标注
+        renderAnnotations();
+        
+        // 渲染人员列表
+        renderPersonList();
+      }
+
+      // 更新地图尺寸
+      function updateMapDimensions() {
+        const mapContainer = elements.imageWrapper.parentElement;
+        state.mapDimensions = {
+          width: mapContainer.clientWidth,
+          height: mapContainer.clientHeight
+        };
+      }
+
+      // 更新图片尺寸
+      function updateImageDimensions() {
+        state.imageDimensions = {
+          width: elements.annotationImage.naturalWidth,
+          height: elements.annotationImage.naturalHeight
+        };
+        
+        // 初始居中
+        centerImage();
+      }
+
+      // 居中图片
+      function centerImage() {
+        state.translateX = (state.mapDimensions.width - (state.imageDimensions.width * state.scale)) / 2;
+        state.translateY = (state.mapDimensions.height - (state.imageDimensions.height * state.scale)) / 2;
+        applyTransform();
+      }
+
+      // 应用变换（缩放和平移）
+      function applyTransform() {
+        elements.imageWrapper.style.transform = `translate(${state.translateX}px, ${state.translateY}px) scale(${state.scale})`;
+      }
+
+      // 绑定事件监听器
+      function bindEventListeners() {
+        // 图片点击事件
+        elements.annotationImage.addEventListener('click', handleImageClick);
+        
+        // 模式切换按钮
+        elements.addModeBtn.addEventListener('click', () => setMode('add'));
+        elements.viewModeBtn.addEventListener('click', () => setMode('view'));
+        elements.deleteModeBtn.addEventListener('click', () => setMode('delete'));
+        
+        // 缩放控制
+        elements.zoomInBtn.addEventListener('click', zoomIn);
+        elements.zoomOutBtn.addEventListener('click', zoomOut);
+        elements.resetScaleBtn.addEventListener('click', resetScale);
+        
+        // 重置按钮
+        elements.resetBtn.addEventListener('click', resetAnnotations);
+        
+        // 详情面板关闭按钮
+        elements.closeDetailsBtn.addEventListener('click', hideDetailsPanel);
+        
+        // 模态框关闭按钮
+        elements.closeModalBtn.addEventListener('click', () => elements.detailsModal.classList.add('hidden'));
+        elements.cancelAddBtn.addEventListener('click', () => elements.addPersonModal.classList.add('hidden'));
+        elements.cancelDeleteBtn.addEventListener('click', () => elements.confirmDeleteModal.classList.add('hidden'));
+        
+        // 添加人员表单提交
+        elements.addPersonForm.addEventListener('submit', handleAddPerson);
+        
+        // 确认删除
+        elements.confirmDeleteBtn.addEventListener('click', handleDeleteAnnotation);
+        
+        // 搜索输入
+        elements.searchInput.addEventListener('input', handleSearch);
+        
+        // 拖拽地图
+        elements.imageWrapper.addEventListener('mousedown', startDrag);
+        document.addEventListener('mousemove', handleDrag);
+        document.addEventListener('mouseup', endDrag);
+        
+        // 双击放大
+        elements.annotationImage.addEventListener('dblclick', handleDoubleClick);
+      }
+
+      // 设置操作模式
+      function setMode(mode) {
+        state.mode = mode;
+        
+        // 更新按钮状态
+        elements.addModeBtn.classList.toggle('active', mode === 'add');
+        elements.viewModeBtn.classList.toggle('active', mode === 'view');
+        elements.deleteModeBtn.classList.toggle('active', mode === 'delete');
+        
+        // 更新光标样式
+        elements.annotationImage.style.cursor = 
+          mode === 'add' ? 'crosshair' : 
+          mode === 'delete' ? 'not-allowed' : 
+          'default';
+      }
+
+      // 处理图片点击
+      function handleImageClick(e) {
+        // 防止拖拽时触发点击
+        if (state.isDragging) return;
+        
+        // 获取相对于图片的坐标
+        const rect = elements.annotationImage.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / state.scale;
+        const y = (e.clientY - rect.top) / state.scale;
+        
+        // 根据当前模式处理点击
+        if (state.mode === 'add') {
+          showAddPersonModal(x, y);
+        } else if (state.mode === 'view') {
+          // 查找最近的标注点
+          const nearestAnnotation = findNearestAnnotation(x, y);
+          if (nearestAnnotation) {
+            selectAnnotation(nearestAnnotation.id);
+          }
+        } else if (state.mode === 'delete') {
+          // 查找最近的标注点
+          const nearestAnnotation = findNearestAnnotation(x, y);
+          if (nearestAnnotation) {
+            state.selectedAnnotationId = nearestAnnotation.id;
+            elements.confirmDeleteModal.classList.remove('hidden');
+          }
+        }
+      }
+
+      // 查找最近的标注点
+      function findNearestAnnotation(x, y) {
+        let nearest = null;
+        let minDistance = Infinity;
+        
+        state.annotations.forEach(annotation => {
+          const distance = Math.sqrt(
+            Math.pow(annotation.x - x, 2) + Math.pow(annotation.y - y, 2)
+          );
+          
+          // 如果距离小于阈值（这里设置为30像素）
+          if (distance < 30 && distance < minDistance) {
+            minDistance = distance;
+            nearest = annotation;
+          }
+        });
+        
+        return nearest;
+      }
+
+      // 显示添加人员模态框
+      function showAddPersonModal(x, y) {
+        document.getElementById('annotation-x').value = x;
+        document.getElementById('annotation-y').value = y;
+        document.getElementById('person-name').value = '';
+        document.getElementById('person-role').value = '';
+        document.getElementById('person-description').value = '';
+        document.getElementById('person-name').focus();
+        elements.addPersonModal.classList.remove('hidden');
+      }
+
+      // 处理添加人员表单提交
+      function handleAddPerson(e) {
+        e.preventDefault();
+        
+        const x = parseFloat(document.getElementById('annotation-x').value);
+        const y = parseFloat(document.getElementById('annotation-y').value);
+        const name = document.getElementById('person-name').value.trim();
+        const role = document.getElementById('person-role').value.trim();
+        const description = document.getElementById('person-description').value.trim();
+        
+        if (!name || !role) {
+          alert('姓名和角色不能为空');
+          return;
+        }
+        
+        // 创建新标注
+        const newAnnotation = {
+          id: Date.now().toString(),
+          x,
+          y,
+          name,
+          role,
+          description,
+          createdAt: new Date().toISOString()
+        };
+        
+        // 添加到状态
+        state.annotations.push(newAnnotation);
+        
+        // 保存到本地存储
+        saveAnnotations();
+        
+        // 渲染所有标注
+        renderAnnotations();
+        
+        // 渲染人员列表
+        renderPersonList();
+        
+        // 关闭模态框
+        elements.addPersonModal.classList.add('hidden');
+        
+        // 高亮显示新添加的标注
+        selectAnnotation(newAnnotation.id);
+        
+        // 启用重置按钮
+        elements.resetBtn.disabled = false;
+      }
+
+      // 处理删除标注
+      function handleDeleteAnnotation() {
+        if (!state.selectedAnnotationId) return;
+        
+        // 从状态中删除
+        state.annotations = state.annotations.filter(
+          annotation => annotation.id !== state.selectedAnnotationId
+        );
+        
+        // 保存到本地存储
+        saveAnnotations();
+        
+        // 渲染所有标注
+        renderAnnotations();
+        
+        // 渲染人员列表
+        renderPersonList();
+        
+        // 隐藏详情面板
+        hideDetailsPanel();
+        
+        // 关闭确认模态框
+        elements.confirmDeleteModal.classList.add('hidden');
+        
+        // 如果没有标注了，禁用重置按钮
+        if (state.annotations.length === 0) {
+          elements.resetBtn.disabled = true;
+        }
+      }
+
+      // 重置所有标注
+      function resetAnnotations() {
+        if (confirm('确定要删除所有标注吗？此操作不可撤销。')) {
+          state.annotations = [];
+          saveAnnotations();
+          renderAnnotations();
+          renderPersonList();
+          hideDetailsPanel();
+          elements.resetBtn.disabled = true;
+        }
+      }
+
+      // 选择标注
+      function selectAnnotation(id) {
+        state.selectedAnnotationId = id;
+        
+        // 更新标注高亮
+        renderAnnotations();
+        
+        // 显示详情
+        const annotation = state.annotations.find(a => a.id === id);
+        if (annotation) {
+          showPersonDetails(annotation);
+        }
+      }
+
+      // 显示人员详情
+      function showPersonDetails(annotation) {
+        // 格式化日期
+        const date = new Date(annotation.createdAt);
+        const formattedDate = date.toLocaleString();
+        
+        // 创建详情HTML
+        const detailsHtml = `
+          <div class="person-card">
+            <div class="flex justify-between items-start mb-3">
+              <h3>${annotation.name}</h3>
+              <span class="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">${annotation.role}</span>
+            </div>
+            <div class="mb-3">
+              <p class="text-gray-600">${annotation.description || '暂无描述信息'}</p>
+            </div>
+            <div class="text-sm text-gray-500">
+              <p>标注位置: (${Math.round(annotation.x)}, ${Math.round(annotation.y)})</p>
+              <p>标注时间: ${formattedDate}</p>
+            </div>
+          </div>
+          
+          <div class="mt-4">
+            <h4 class="font-medium mb-2">附近的人员</h4>
+            ${getNearbyPersonsHtml(annotation)}
+          </div>
+        `;
+        
+        // 更新详情面板
+        elements.personDetailsContent.innerHTML = detailsHtml;
+        elements.personDetailsContent.classList.remove('hidden');
+        elements.noSelectionMessage.classList.add('hidden');
+        elements.detailsPanel.classList.remove('hidden');
+        
+        // 更新模态框
+        elements.modalPersonDetails.innerHTML = detailsHtml;
+        
+        // 在移动设备上显示模态框
+        if (window.innerWidth < 1024) {
+          elements.detailsModal.classList.remove('hidden');
+        }
+        
+        // 更新人员列表中的选中状态
+        renderPersonList();
+      }
+
+      // 获取附近人员的HTML
+      function getNearbyPersonsHtml(annotation) {
+        // 计算距离并排序
+        const nearbyPersons = [...state.annotations]
+          .filter(a => a.id !== annotation.id)
+          .map(a => {
+            const distance = Math.sqrt(
+              Math.pow(a.x - annotation.x, 2) + Math.pow(a.y - annotation.y, 2)
+            );
+            return { ...a, distance };
+          })
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, 3); // 只取最近的3个人
+        
+        if (nearbyPersons.length === 0) {
+          return '<p class="text-gray-500">附近没有其他人员</p>';
+        }
+        
+        return `
+          <div class="space-y-2">
+            ${nearbyPersons.map(person => `
+              <div class="p-2 border border-gray-100 rounded hover:bg-gray-50 cursor-pointer transition-colors" 
+                   onclick="selectAnnotation('${person.id}')">
+                <div class="flex justify-between items-center">
+                  <span class="font-medium">${person.name}</span>
+                  <span class="text-xs text-gray-500">${Math.round(person.distance)}px</span>
+                </div>
+                <div class="text-xs text-gray-500">${person.role}</div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      // 隐藏详情面板
+      function hideDetailsPanel() {
+        state.selectedAnnotationId = null;
+        elements.personDetailsContent.classList.add('hidden');
+        elements.noSelectionMessage.classList.remove('hidden');
+        elements.detailsModal.classList.add('hidden');
+        renderAnnotations();
+        renderPersonList();
+      }
+
+      // 渲染所有标注
+      function renderAnnotations() {
+        // 清空现有标注
+        const existingAnnotations = document.querySelectorAll('.annotation-point');
+        existingAnnotations.forEach(annotation => annotation.remove());
+        
+        // 添加新标注
+        state.annotations.forEach(annotation => {
+          const isSelected = annotation.id === state.selectedAnnotationId;
+          const isVisible = !state.searchTerm || 
+            annotation.name.toLowerCase().includes(state.searchTerm.toLowerCase()) ||
+            annotation.role.toLowerCase().includes(state.searchTerm.toLowerCase());
+          
+          if (!isVisible) return;
+          
+          const point = document.createElement('div');
+          point.className = `annotation-point ${isSelected ? 'active' : ''}`;
+          point.style.left = `${annotation.x}px`;
+          point.style.top = `${annotation.y}px`;
+          point.setAttribute('data-id', annotation.id);
+          
+          // 添加信息卡片
+          point.innerHTML = `
+            <div class="annotation-info">
+              <div class="tooltip-arrow"></div>
+              <div class="font-medium">${annotation.name}</div>
+              <div class="text-sm text-gray-600">${annotation.role}</div>
+              <div class="mt-1 text-xs text-gray-500">${annotation.description}</div>
+            </div>
+          `;
+          
+          // 添加点击事件
+          point.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (state.mode === 'view') {
+              selectAnnotation(annotation.id);
+            } else if (state.mode === 'delete') {
+              state.selectedAnnotationId = annotation.id;
+              elements.confirmDeleteModal.classList.remove('hidden');
+            }
+          });
+          
+          elements.imageWrapper.appendChild(point);
+        });
+      }
+
+      // 渲染人员列表
+      function renderPersonList() {
+        // 过滤和排序人员
+        let filteredPersons = [...state.annotations];
+        
+        // 应用搜索过滤
+        if (state.searchTerm) {
+          const term = state.searchTerm.toLowerCase();
+          filteredPersons = filteredPersons.filter(person => 
+            person.name.toLowerCase().includes(term) || 
+            person.role.toLowerCase().includes(term)
+          );
+        }
+        
+        // 按名称排序
+        filteredPersons.sort((a, b) => a.name.localeCompare(b.name));
+        
+        // 渲染列表
+        if (filteredPersons.length === 0) {
+          elements.personList.innerHTML = `
+            <div class="no-results">
+              ${state.searchTerm ? 
+                `<p>未找到包含"${state.searchTerm}"的人员</p>` : 
+                `<i class="fa fa-info-circle text-gray-400 mb-2"></i>
+                <p>暂无标注人员，请在图片上点击添加</p>`
+              }
+            </div>
+          `;
+          return;
+        }
+        
+        elements.personList.innerHTML = filteredPersons.map(person => {
+          const isSelected = person.id === state.selectedAnnotationId;
+          
+          return `
+            <div class="person-list-item ${isSelected ? 'active' : ''}" data-id="${person.id}">
+              <div class="flex justify-between items-center">
+                <span class="font-medium">${person.name}</span>
+                <span class="px-1.5 py-0.5 bg-primary/10 text-primary text-xs rounded-full">${person.role}</span>
+              </div>
+              <div class="mt-1 flex justify-between items-center text-xs text-gray-500">
+                <span>位置: (${Math.round(person.x)}, ${Math.round(person.y)})</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+        
+        // 添加列表项点击事件
+        document.querySelectorAll('.person-list-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const id = item.getAttribute('data-id');
+            selectAnnotation(id);
+          });
+        });
+      }
+
+      // 处理搜索
+      function handleSearch(e) {
+        state.searchTerm = e.target.value.trim();
+        renderAnnotations();
+        renderPersonList();
+      }
+
+      // 缩放相关函数
+      function zoomIn() {
+        state.scale = Math.min(state.scale * 1.2, 5);
+        applyTransform();
+      }
+
+      function zoomOut() {
+        state.scale = Math.max(state.scale / 1.2, 0.2);
+        applyTransform();
+      }
+
+      function resetScale() {
+        state.scale = 1;
+        centerImage();
+      }
+
+      // 拖拽相关函数
+      function startDrag(e) {
+        // 仅在查看模式下允许拖拽
+        if (state.mode !== 'view') return;
+        
+        state.dragStart = {
+          x: e.clientX,
+          y: e.clientY,
+          translateX: state.translateX,
+          translateY: state.translateY
+        };
+        state.isDragging = true;
+        elements.imageWrapper.style.cursor = 'grabbing';
+      }
+
+      function handleDrag(e) {
+        if (!state.isDragging) return;
+        
+        const deltaX = e.clientX - state.dragStart.x;
+        const deltaY = e.clientY - state.dragStart.y;
+        
+        state.translateX = state.dragStart.translateX + deltaX;
+        state.translateY = state.dragStart.translateY + deltaY;
+        
+        applyTransform();
+      }
+
+      function endDrag() {
+        if (!state.isDragging) return;
+        
+        state.isDragging = false;
+        state.dragStart = null;
+        elements.imageWrapper.style.cursor = 'default';
+      }
+
+      // 处理双击
+      function handleDoubleClick(e) {
+        // 仅在查看模式下允许双击放大
+        if (state.mode !== 'view') return;
+        
+        // 计算双击位置相对于图片的坐标
+        const rect = elements.annotationImage.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+        
+        // 放大
+        state.scale = Math.min(state.scale * 1.5, 5);
+        
+        // 调整平移，使双击点保持在同一位置
+        const newClickX = clickX / state.scale;
+        const newClickY = clickY / state.scale;
+        
+        state.translateX += clickX - newClickX * state.scale;
+        state.translateY += clickY - newClickY * state.scale;
+        
+        applyTransform();
+      }
+
+      // 本地存储相关函数
+      function saveAnnotations() {
+        localStorage.setItem('imageAnnotations', JSON.stringify(state.annotations));
+      }
+
+      function loadAnnotations() {
+        const annotations = localStorage.getItem('imageAnnotations');
+        if (annotations) {
+          state.annotations = JSON.parse(annotations);
+          elements.resetBtn.disabled = state.annotations.length === 0;
+        }
+      }
+
+      // 初始化应用
+      init();
+    });
+  </script>
+
+
+    </body></html>
